@@ -417,7 +417,7 @@
                 </div>
                 <div class="input-group">
                     <label for="serverUrl">Server URL (Optional)</label>
-                    <input type="text" id="serverUrl" placeholder="ws://localhost:8766" value="ws://localhost:8766">
+                    <input type="text" id="serverUrl" placeholder="ws://localhost:8080/ws" value="ws://localhost:8080/ws">
                 </div>
                 <button class="btn" onclick="login()">
                     <i class="fas fa-sign-in-alt"></i> Join Chat
@@ -498,7 +498,7 @@
         // Login function
         function login() {
             const username = document.getElementById('username').value.trim();
-            const serverUrl = document.getElementById('serverUrl').value.trim() || 'ws://localhost:8766';
+            const serverUrl = document.getElementById('serverUrl').value.trim() || 'ws://localhost:8080/ws';
             
             if (!username) {
                 showError('Please enter a username');
