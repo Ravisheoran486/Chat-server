@@ -487,6 +487,9 @@
                 <button class="btn" onclick="disconnect()" style="width: auto; padding: 8px 16px;">
                     <i class="fas fa-sign-out-alt"></i> Disconnect
                 </button>
+                <button class="btn" onclick="attemptReconnect()" style="width: auto; padding: 8px 16px; margin-left: 10px; background: #28a745;">
+                    <i class="fas fa-sync-alt"></i> Reconnect
+                </button>
             </div>
 
             <div class="chat-body">
@@ -571,9 +574,13 @@
         // Connect to WebSocket
         function connect(serverUrl) {
             try {
+                // Reset reconnection attempts on successful connection
+                reconnectAttempts = 0;
+                
                 websocket = new WebSocket(serverUrl);
                 
                 websocket.onopen = function(event) {
+                    console.log('WebSocket connected successfully');
                     updateConnectionStatus(true);
                     
                     // Send login message
@@ -596,6 +603,7 @@
                 };
                 
                 websocket.onclose = function(event) {
+                    console.log('WebSocket connection closed:', event.code, event.reason);
                     updateConnectionStatus(false);
                     
                     // Don't show login screen if we're trying to reconnect
@@ -648,6 +656,7 @@
             reconnectInterval = setTimeout(() => {
                 if (currentUsername) {
                     const serverUrl = document.getElementById('serverUrl').value.trim() || 'wss://web-production-8b58c.up.railway.app/ws';
+                    console.log('Attempting to reconnect to:', serverUrl);
                     connect(serverUrl);
                 }
             }, 2000);
@@ -989,10 +998,23 @@
 
         // Handle page visibility changes (refresh, tab switch, etc.)
         document.addEventListener('visibilitychange', function() {
-            if (document.visibilityState === 'visible' && websocket && websocket.readyState === WebSocket.CLOSED && currentUsername) {
-                // Page became visible and we have a username but no connection
-                showError('Reconnecting...');
-                attemptReconnect();
+            if (document.visibilityState === 'visible' && currentUsername) {
+                // Page became visible and we have a username
+                if (!websocket || websocket.readyState === WebSocket.CLOSED) {
+                    showError('Reconnecting...');
+                    attemptReconnect();
+                }
+            }
+        });
+
+        // Handle page load event for refresh scenarios
+        window.addEventListener('load', function() {
+            // Check if we have a stored username and try to reconnect
+            if (currentUsername && (!websocket || websocket.readyState === WebSocket.CLOSED)) {
+                setTimeout(() => {
+                    showError('Reconnecting after page load...');
+                    attemptReconnect();
+                }, 1000);
             }
         });
 
@@ -1015,6 +1037,25 @@
             console.log('Overflow-y style:', getComputedStyle(messagesContainer).overflowY);
             console.log('========================');
         };
+
+        // Connection health check function
+        function checkConnectionHealth() {
+            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                // Send a ping to keep connection alive
+                try {
+                    websocket.send(JSON.stringify({ type: 'ping' }));
+                } catch (e) {
+                    console.log('Connection health check failed, attempting reconnect...');
+                    attemptReconnect();
+                }
+            } else if (currentUsername && (!websocket || websocket.readyState === WebSocket.CLOSED)) {
+                console.log('Connection lost, attempting reconnect...');
+                attemptReconnect();
+            }
+        }
+
+        // Set up periodic connection health checks
+        setInterval(checkConnectionHealth, 30000); // Check every 30 seconds
     </script>
 </body>
 </html> 
