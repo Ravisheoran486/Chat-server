@@ -436,6 +436,10 @@
             background: #f44336;
         }
 
+        .connection-status.restoring {
+            background: #ff9800;
+        }
+
         @media (max-width: 768px) {
             .chat-container {
                 width: 100%;
@@ -553,6 +557,7 @@
         let reconnectAttempts = 0;
         let maxReconnectAttempts = 5;
         let reconnectInterval = null;
+        let sessionId = null;
 
         // Login function
         function login() {
@@ -565,6 +570,12 @@
             }
 
             currentUsername = username;
+            
+            // Store session info in localStorage
+            localStorage.setItem('chatUsername', username);
+            localStorage.setItem('chatServerUrl', serverUrl);
+            localStorage.setItem('chatSessionId', Date.now().toString());
+            
             document.getElementById('userAvatar').textContent = username.charAt(0).toUpperCase();
             document.getElementById('currentUser').textContent = username;
 
@@ -627,11 +638,14 @@
         }
 
         // Update connection status
-        function updateConnectionStatus(connected) {
+        function updateConnectionStatus(connected, restoring = false) {
             const status = document.getElementById('connectionStatus');
             if (connected) {
                 status.className = 'connection-status connected';
                 status.innerHTML = '<i class="fas fa-circle"></i> Connected';
+            } else if (restoring) {
+                status.className = 'connection-status restoring';
+                status.innerHTML = '<i class="fas fa-sync-alt fa-spin"></i> Restoring...';
             } else {
                 status.className = 'connection-status disconnected';
                 status.innerHTML = '<i class="fas fa-circle"></i> Disconnected';
@@ -675,6 +689,12 @@
                 websocket.close();
                 websocket = null;
             }
+            
+            // Clear stored session
+            localStorage.removeItem('chatUsername');
+            localStorage.removeItem('chatServerUrl');
+            localStorage.removeItem('chatSessionId');
+            
             showLoginScreen();
         }
 
@@ -1009,19 +1029,51 @@
 
         // Handle page load event for refresh scenarios
         window.addEventListener('load', function() {
-            // Check if we have a stored username and try to reconnect
-            if (currentUsername && (!websocket || websocket.readyState === WebSocket.CLOSED)) {
-                setTimeout(() => {
-                    showError('Reconnecting after page load...');
-                    attemptReconnect();
-                }, 1000);
-            }
+            // Try to restore session from localStorage
+            restoreSession();
         });
+
+        // Restore session from localStorage
+        function restoreSession() {
+            const storedUsername = localStorage.getItem('chatUsername');
+            const storedServerUrl = localStorage.getItem('chatServerUrl');
+            const storedSessionId = localStorage.getItem('chatSessionId');
+            
+            if (storedUsername && storedServerUrl) {
+                console.log('Restoring session for user:', storedUsername);
+                
+                // Show restoring status
+                updateConnectionStatus(false, true);
+                
+                // Set the stored values
+                currentUsername = storedUsername;
+                document.getElementById('username').value = storedUsername;
+                document.getElementById('serverUrl').value = storedServerUrl;
+                document.getElementById('userAvatar').textContent = storedUsername.charAt(0).toUpperCase();
+                document.getElementById('currentUser').textContent = storedUsername;
+                
+                // Show chat screen and attempt to connect
+                showChatScreen();
+                
+                // Attempt to reconnect after a short delay
+                setTimeout(() => {
+                    showError('Restoring connection...');
+                    connect(storedServerUrl);
+                }, 500);
+            }
+        }
 
         // Handle page beforeunload to clean up
         window.addEventListener('beforeunload', function() {
-            if (websocket) {
-                websocket.close();
+            // Don't close the websocket on refresh - let it handle reconnection
+            // Only close if it's a real page unload (like closing tab)
+            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                // Send a disconnect message to server instead of closing connection
+                try {
+                    websocket.send(JSON.stringify({ type: 'disconnect' }));
+                } catch (e) {
+                    // Ignore errors during page unload
+                }
             }
         });
 
@@ -1056,6 +1108,19 @@
 
         // Set up periodic connection health checks
         setInterval(checkConnectionHealth, 30000); // Check every 30 seconds
+
+        // Detect if page is being refreshed vs closed
+        let isRefreshing = false;
+        
+        // Set flag when refresh is detected
+        window.addEventListener('beforeunload', function() {
+            isRefreshing = true;
+        });
+        
+        // Reset flag when page loads
+        window.addEventListener('load', function() {
+            isRefreshing = false;
+        });
     </script>
 </body>
 </html> 
