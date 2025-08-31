@@ -29,6 +29,7 @@
             width: 95%;
             max-width: 900px;
             height: 90vh;
+            max-height: 800px;
             display: flex;
             flex-direction: column;
             overflow: hidden;
@@ -151,13 +152,37 @@
             flex: 1;
             display: flex;
             flex-direction: column;
+            min-height: 0;
+            overflow: hidden;
         }
 
         .messages-container {
             flex: 1;
             padding: 20px;
-            overflow-y: auto;
+            overflow-y: scroll !important;
             background: #f8f9fa;
+            scroll-behavior: smooth;
+            max-height: calc(100vh - 200px);
+            min-height: 300px;
+        }
+
+        /* Ensure scrollbar is always visible */
+        .messages-container::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .messages-container::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 4px;
+        }
+
+        .messages-container::-webkit-scrollbar-thumb {
+            background: #c1c1c1;
+            border-radius: 4px;
+        }
+
+        .messages-container::-webkit-scrollbar-thumb:hover {
+            background: #a8a8a8;
         }
 
         .message {
@@ -299,6 +324,29 @@
             background: #ccc;
             cursor: not-allowed;
             transform: none;
+        }
+
+        .scroll-to-bottom {
+            position: fixed;
+            bottom: 100px;
+            right: 30px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            cursor: pointer;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            transition: all 0.3s;
+        }
+
+        .scroll-to-bottom:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(0,0,0,0.2);
         }
 
         .private-toggle {
@@ -487,6 +535,11 @@
         <i class="fas fa-circle"></i> Disconnected
     </div>
 
+    <!-- Scroll to Bottom Button -->
+    <button id="scrollToBottomBtn" class="scroll-to-bottom" onclick="scrollToBottom()" title="Scroll to bottom">
+        <i class="fas fa-arrow-down"></i>
+    </button>
+
     <script>
         let websocket = null;
         let currentUsername = '';
@@ -494,6 +547,9 @@
         let typingTimeout = null;
         let onlineUsers = [];
         let isPrivateMode = false;
+        let reconnectAttempts = 0;
+        let maxReconnectAttempts = 5;
+        let reconnectInterval = null;
 
         // Login function
         function login() {
@@ -541,8 +597,15 @@
                 
                 websocket.onclose = function(event) {
                     updateConnectionStatus(false);
-                    showLoginScreen();
-                    showError('Connection closed');
+                    
+                    // Don't show login screen if we're trying to reconnect
+                    if (reconnectAttempts < maxReconnectAttempts && currentUsername) {
+                        showError(`Connection lost. Attempting to reconnect... (${reconnectAttempts + 1}/${maxReconnectAttempts})`);
+                        attemptReconnect();
+                    } else {
+                        showLoginScreen();
+                        showError('Connection closed');
+                    }
                 };
                 
                 websocket.onerror = function(error) {
@@ -567,8 +630,38 @@
             }
         }
 
+        // Attempt to reconnect to WebSocket
+        function attemptReconnect() {
+            if (reconnectAttempts >= maxReconnectAttempts) {
+                showError('Max reconnection attempts reached. Please refresh the page.');
+                return;
+            }
+            
+            reconnectAttempts++;
+            
+            // Clear any existing reconnect interval
+            if (reconnectInterval) {
+                clearTimeout(reconnectInterval);
+            }
+            
+            // Wait 2 seconds before attempting to reconnect
+            reconnectInterval = setTimeout(() => {
+                if (currentUsername) {
+                    const serverUrl = document.getElementById('serverUrl').value.trim() || 'wss://web-production-8b58c.up.railway.app/ws';
+                    connect(serverUrl);
+                }
+            }, 2000);
+        }
+
         // Disconnect from WebSocket
         function disconnect() {
+            // Clear reconnection attempts
+            reconnectAttempts = 0;
+            if (reconnectInterval) {
+                clearTimeout(reconnectInterval);
+                reconnectInterval = null;
+            }
+            
             if (websocket) {
                 websocket.close();
                 websocket = null;
@@ -581,6 +674,10 @@
             document.getElementById('loginScreen').style.display = 'none';
             document.getElementById('chatScreen').style.display = 'flex';
             document.getElementById('messageInput').focus();
+            
+            // Add scroll event listener to messages container
+            const messagesContainer = document.getElementById('messagesContainer');
+            messagesContainer.addEventListener('scroll', checkScrollPosition);
         }
 
         // Show login screen
@@ -701,7 +798,15 @@
             messageDiv.appendChild(content);
             messagesContainer.appendChild(messageDiv);
 
-            scrollToBottom();
+            // Check if user is at bottom before auto-scrolling
+            const isAtBottom = messagesContainer.scrollTop + messagesContainer.clientHeight >= messagesContainer.scrollHeight - 10;
+            
+            if (isAtBottom) {
+                scrollToBottom();
+            } else {
+                // Show scroll button if user has scrolled up
+                document.getElementById('scrollToBottomBtn').style.display = 'flex';
+            }
         }
 
         // Add system message
@@ -823,7 +928,39 @@
         // Scroll to bottom
         function scrollToBottom() {
             const messagesContainer = document.getElementById('messagesContainer');
+            console.log('Scrolling to bottom...');
+            console.log('Current scrollTop:', messagesContainer.scrollTop);
+            console.log('ScrollHeight:', messagesContainer.scrollHeight);
+            console.log('ClientHeight:', messagesContainer.clientHeight);
+            
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            
+            // Force scroll to bottom with a small delay to ensure content is rendered
+            setTimeout(() => {
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                console.log('After scroll - scrollTop:', messagesContainer.scrollTop);
+            }, 100);
+            
+            // Hide scroll button after scrolling
+            document.getElementById('scrollToBottomBtn').style.display = 'none';
+        }
+
+        // Check if user has scrolled up and show scroll button
+        function checkScrollPosition() {
+            const messagesContainer = document.getElementById('messagesContainer');
+            const scrollBtn = document.getElementById('scrollToBottomBtn');
+            
+            const isAtBottom = messagesContainer.scrollTop + messagesContainer.clientHeight >= messagesContainer.scrollHeight - 10;
+            
+            console.log('Scroll check - scrollTop:', messagesContainer.scrollTop, 'clientHeight:', messagesContainer.clientHeight, 'scrollHeight:', messagesContainer.scrollHeight, 'isAtBottom:', isAtBottom);
+            
+            if (!isAtBottom) {
+                scrollBtn.style.display = 'flex';
+                console.log('Showing scroll button');
+            } else {
+                scrollBtn.style.display = 'none';
+                console.log('Hiding scroll button');
+            }
         }
 
         // Format timestamp
@@ -849,6 +986,35 @@
                 login();
             }
         });
+
+        // Handle page visibility changes (refresh, tab switch, etc.)
+        document.addEventListener('visibilitychange', function() {
+            if (document.visibilityState === 'visible' && websocket && websocket.readyState === WebSocket.CLOSED && currentUsername) {
+                // Page became visible and we have a username but no connection
+                showError('Reconnecting...');
+                attemptReconnect();
+            }
+        });
+
+        // Handle page beforeunload to clean up
+        window.addEventListener('beforeunload', function() {
+            if (websocket) {
+                websocket.close();
+            }
+        });
+
+        // Debug function - call this from browser console to test scrolling
+        window.testScroll = function() {
+            const messagesContainer = document.getElementById('messagesContainer');
+            console.log('=== SCROLL DEBUG INFO ===');
+            console.log('Container height:', messagesContainer.offsetHeight);
+            console.log('Scroll height:', messagesContainer.scrollHeight);
+            console.log('Client height:', messagesContainer.clientHeight);
+            console.log('Scroll top:', messagesContainer.scrollTop);
+            console.log('Overflow style:', getComputedStyle(messagesContainer).overflow);
+            console.log('Overflow-y style:', getComputedStyle(messagesContainer).overflowY);
+            console.log('========================');
+        };
     </script>
 </body>
 </html> 
